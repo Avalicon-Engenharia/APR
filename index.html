@@ -918,14 +918,14 @@
     <footer class="doc-footer" contenteditable="true">
         Rua Brasópolis, 182, Floresta/ Belo Horizonte - MG<br>
         CEP: 30150-170 - Fone: (31) 3481-9771<br>
-        EMAIL: avalicon@avalicon.com.br | www.avalicon.com.br
+        EMAIL: <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="24455245484d474b4a64455245484d474b4a0a474b490a4656">[email&#160;protected]</a> | www.avalicon.com.br
     </footer>
 
 </article>
 </div>
 </main>
 
-<script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
     // ── SINCRONIZAÇÃO MOBILE → DOCUMENTO A4 ──
 
     // Mapeia os checkboxes mobile para os checkboxes do documento A4
@@ -1096,29 +1096,76 @@
     function gerarPDFCanvas(btn) {
         const doc = document.getElementById('documento-pdf');
         const workspace = document.querySelector('.workspace');
-        const wrapperEl = document.getElementById('doc-wrapper');
 
-        // Torna o workspace/documento visível temporariamente para captura
-        const wsDisplay = workspace ? workspace.style.display : '';
-        const wsImportant = workspace ? workspace.getAttribute('style') : '';
+        // ── PASSO 1: Congelar todos os inputs no HTML antes de capturar ──
+        // html2canvas lê o DOM estático, não o estado dos inputs em tempo real.
+        // Substituímos cada input por um elemento visual que exibe o valor atual.
+        const replacements = []; // [{original, placeholder}]
+
+        doc.querySelectorAll('input[type="text"], input[type="date"]').forEach(function(inp) {
+            const span = document.createElement('span');
+            span.textContent = inp.value || '';
+            span.style.cssText = [
+                'display:inline-block',
+                'min-width:' + (inp.offsetWidth || 40) + 'px',
+                'font-size:' + (window.getComputedStyle(inp).fontSize || '8px'),
+                'font-family:Arial,Helvetica,sans-serif',
+                'color:#000',
+                'border-bottom:1px solid #bbb',
+                'vertical-align:middle',
+                'line-height:1.2',
+                'word-break:break-all'
+            ].join(';');
+            inp.parentNode.insertBefore(span, inp);
+            inp.style.display = 'none';
+            replacements.push({ original: inp, placeholder: span });
+        });
+
+        doc.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
+            // Força o atributo checked para refletir o estado visual atual
+            if (cb.checked) {
+                cb.setAttribute('checked', 'checked');
+            } else {
+                cb.removeAttribute('checked');
+            }
+        });
+
+        // ── PASSO 2: Torna workspace visível em posição off-screen para captura ──
+        const wsStyleAntes = workspace ? workspace.getAttribute('style') || '' : '';
         if (workspace) {
-            workspace.style.cssText = 'display:flex !important; visibility:visible !important; position:fixed; top:-9999px; left:0; z-index:-1;';
+            workspace.style.cssText = 'display:flex !important; visibility:visible !important; position:fixed; top:-9999px; left:0; z-index:-1; width:auto; overflow:visible;';
         }
 
-        // Reseta transform para capturar em tamanho real
+        // Reseta transform do documento para capturar em tamanho real (1:1)
         const transformAntes = doc.style.transform;
-        const marginAntes = doc.style.marginBottom;
-        doc.style.transform = 'none';
+        const marginAntes    = doc.style.marginBottom;
+        const overflowAntes  = doc.style.overflow;
+        doc.style.transform      = 'none';
         doc.style.transformOrigin = 'top left';
-        doc.style.marginBottom = '0';
-        doc.style.overflow = 'visible';
+        doc.style.marginBottom   = '0';
+        doc.style.overflow       = 'visible';
 
         // Força reflow
         void doc.offsetWidth;
 
+        function restaurar() {
+            // Restaura inputs originais
+            replacements.forEach(function(r) {
+                r.original.style.display = '';
+                if (r.placeholder.parentNode) r.placeholder.parentNode.removeChild(r.placeholder);
+            });
+            doc.style.transform      = transformAntes;
+            doc.style.marginBottom   = marginAntes;
+            doc.style.overflow       = overflowAntes;
+            if (workspace) workspace.setAttribute('style', wsStyleAntes);
+            ajustarEscalaMobile();
+            btn.textContent = '🖨 Gerar PDF';
+            btn.disabled = false;
+        }
+
         setTimeout(function() {
-            const W = 794; // 210mm a 96dpi
-            const H = 1123; // 297mm a 96dpi
+            const W = 794;  // 210mm @ 96 dpi
+            const H = 1123; // 297mm @ 96 dpi
 
             html2canvas(doc, {
                 scale: 2,
@@ -1132,10 +1179,9 @@
                 windowWidth: W,
                 windowHeight: H,
                 ignoreElements: function(el) {
-                    // Ignora elementos que não são do documento
                     return el.classList && (
                         el.classList.contains('mob-header') ||
-                        el.classList.contains('mob-form') ||
+                        el.classList.contains('mob-form')   ||
                         el.classList.contains('mob-footer') ||
                         el.classList.contains('sidebar')
                     );
@@ -1148,26 +1194,13 @@
                 const pdfH = pdf.internal.pageSize.getHeight();
                 pdf.addImage(imgData, 'JPEG', 0, 0, pdfW, pdfH);
                 pdf.save('APR_AVALICON.pdf');
-
-                // Restaura
-                doc.style.transform = transformAntes;
-                doc.style.marginBottom = marginAntes;
-                doc.style.overflow = '';
-                if (workspace) workspace.setAttribute('style', wsImportant || '');
-                ajustarEscalaMobile();
-                btn.textContent = '🖨 Gerar PDF';
-                btn.disabled = false;
+                restaurar();
             }).catch(function(err) {
-                console.error(err);
+                console.error('Erro html2canvas:', err);
                 alert('Erro ao gerar PDF: ' + err.message);
-                doc.style.transform = transformAntes;
-                doc.style.marginBottom = marginAntes;
-                if (workspace) workspace.setAttribute('style', wsImportant || '');
-                ajustarEscalaMobile();
-                btn.textContent = '🖨 Gerar PDF';
-                btn.disabled = false;
+                restaurar();
             });
-        }, 500);
+        }, 300);
     }
 
     function gerarPDFPrint(btn) {
@@ -1185,15 +1218,4 @@ html,body { width:210mm; height:297mm; background:white; -webkit-print-color-adj
         janela.document.write(paginaHTML);
         janela.document.close();
         btn.textContent = '🖨 Gerar PDF';
-        btn.disabled = false;
-    }
-
-    window.addEventListener('keydown', function(e) {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
-            e.preventDefault();
-            gerarPDF();
-        }
-    });
-</script>
-</body>
-</html>
+        btn.
